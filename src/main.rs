@@ -1,6 +1,6 @@
 use std::cell::RefCell;
+use std::fs::File;
 use std::io::prelude::*;
-use std::{fs::File, rc::Rc};
 
 use thrift::protocol::{self, TInputProtocol, TType};
 use thrift_codec::data::{Data, Struct};
@@ -38,7 +38,7 @@ fn main() -> std::io::Result<()> {
     // go back by metadata_size bytes
     let metadata_start = metadata_size_start - metadata_size as usize;
     let metadata_bytes = &buf[metadata_start..metadata_start + metadata_size as usize];
-    let metadata_bytes = Vec::from(&metadata_bytes[..]);
+    let metadata_bytes = Vec::from(metadata_bytes);
     let mut shared_metadata = SharedByteSliceReader::new(&metadata_bytes);
 
     let mut t = protocol::TCompactInputProtocol::new(&mut shared_metadata);
@@ -120,7 +120,7 @@ impl TryFrom<&Struct> for SchemaElement {
     fn try_from(value: &Struct) -> Result<Self, Self::Error> {
         if let Data::Binary(v) = value.fields().iter().find(|f| f.id() == 4).unwrap().data() {
             return Ok(Self {
-                name: String::from_utf8_lossy(&v).to_string(),
+                name: String::from_utf8_lossy(v).to_string(),
             });
         } else {
             panic!("unexpected data kind");
