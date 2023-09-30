@@ -82,75 +82,30 @@ fn main() -> std::io::Result<()> {
     let schema_list_ident = t.read_list_begin().unwrap();
     dbg!(schema_list_ident);
 
-    let schema_schema = &Struct::compact_decode(&mut shared_metadata).unwrap();
-    dbg!(schema_schema);
-    if let Data::Binary(v) = schema_schema
-        .fields()
-        .iter()
-        .find(|f| f.id() == 4)
-        .unwrap()
-        .data()
-    {
-        assert_eq!("schema", String::from_utf8_lossy(&v));
-    } else {
-        panic!("unexpected data kind");
-    }
+    let schema_schema =
+        SchemaElement::try_from(&Struct::compact_decode(&mut shared_metadata).unwrap()).unwrap();
+    dbg!(&schema_schema);
+    assert_eq!("schema", schema_schema.name());
 
-    let schema_one = &Struct::compact_decode(&mut shared_metadata).unwrap();
-    dbg!(schema_one);
-    if let Data::Binary(v) = schema_one
-        .fields()
-        .iter()
-        .find(|f| f.id() == 4)
-        .unwrap()
-        .data()
-    {
-        assert_eq!("one", String::from_utf8_lossy(&v));
-    } else {
-        panic!("unexpected data kind");
-    }
+    let schema_one =
+        SchemaElement::try_from(&Struct::compact_decode(&mut shared_metadata).unwrap()).unwrap();
+    dbg!(&schema_one);
+    assert_eq!("one", schema_one.name());
 
-    let schema_two = &Struct::compact_decode(&mut shared_metadata).unwrap();
-    dbg!(schema_two);
-    if let Data::Binary(v) = schema_two
-        .fields()
-        .iter()
-        .find(|f| f.id() == 4)
-        .unwrap()
-        .data()
-    {
-        assert_eq!("two", String::from_utf8_lossy(&v));
-    } else {
-        panic!("unexpected data kind");
-    }
+    let schema_two =
+        SchemaElement::try_from(&Struct::compact_decode(&mut shared_metadata).unwrap()).unwrap();
+    dbg!(&schema_two);
+    assert_eq!("two", schema_two.name());
 
-    let schema_three = &Struct::compact_decode(&mut shared_metadata).unwrap();
-    dbg!(schema_three);
-    if let Data::Binary(v) = schema_three
-        .fields()
-        .iter()
-        .find(|f| f.id() == 4)
-        .unwrap()
-        .data()
-    {
-        assert_eq!("three", String::from_utf8_lossy(&v));
-    } else {
-        panic!("unexpected data kind");
-    }
+    let schema_three =
+        SchemaElement::try_from(&Struct::compact_decode(&mut shared_metadata).unwrap()).unwrap();
+    dbg!(&schema_three);
+    assert_eq!("three", schema_three.name());
 
-    let schema_idx = &Struct::compact_decode(&mut shared_metadata).unwrap();
-    dbg!(schema_idx);
-    if let Data::Binary(v) = schema_idx
-        .fields()
-        .iter()
-        .find(|f| f.id() == 4)
-        .unwrap()
-        .data()
-    {
-        assert_eq!("__index_level_0__", String::from_utf8_lossy(&v));
-    } else {
-        panic!("unexpected data kind");
-    }
+    let schema_idx =
+        SchemaElement::try_from(&Struct::compact_decode(&mut shared_metadata).unwrap()).unwrap();
+    dbg!(&schema_idx);
+    assert_eq!("__index_level_0__", schema_idx.name());
 
     let mut t = protocol::TCompactInputProtocol::new(&mut shared_metadata);
     t.read_list_end().unwrap();
@@ -165,4 +120,29 @@ fn main() -> std::io::Result<()> {
     assert_eq!(num_rows, 3);
 
     Ok(())
+}
+
+#[derive(Debug)]
+struct SchemaElement {
+    name: String,
+}
+
+impl SchemaElement {
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+}
+
+impl TryFrom<&Struct> for SchemaElement {
+    type Error = std::io::Error;
+
+    fn try_from(value: &Struct) -> Result<Self, Self::Error> {
+        if let Data::Binary(v) = value.fields().iter().find(|f| f.id() == 4).unwrap().data() {
+            return Ok(Self {
+                name: String::from_utf8_lossy(&v).to_string(),
+            });
+        } else {
+            panic!("unexpected data kind");
+        }
+    }
 }
