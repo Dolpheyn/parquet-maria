@@ -143,6 +143,6 @@ impl<'a> SharedByteSliceReader<'a> {
 impl Read for SharedByteSliceReader<'_> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         let mut a = self.inner.borrow_mut();
-        (a).read(buf)
+        Read::read(&mut *a, buf)
     }
 }
