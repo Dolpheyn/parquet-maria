@@ -1,5 +1,8 @@
-use std::fs::File;
+use std::cell::RefCell;
 use std::io::prelude::*;
+use std::{fs::File, rc::Rc};
+
+use thrift::protocol::{self, TInputProtocol, TType};
 use thrift_codec::data::{Data, Struct};
 use thrift_codec::CompactDecode;
 
@@ -32,51 +35,134 @@ fn main() -> std::io::Result<()> {
     );
     println!("metadata size: {}", metadata_size);
 
+    struct SharedMetadata<'a> {
+        inner: RefCell<&'a [u8]>,
+    }
+
+    impl<'a> SharedMetadata<'a> {
+        fn new(inner: &'a [u8]) -> Self {
+            Self {
+                inner: RefCell::new(inner),
+            }
+        }
+    }
+
+    impl Read for SharedMetadata<'_> {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            let mut a = self.inner.borrow_mut();
+            (a).read(buf)
+        }
+    }
+
     // go back by metadata_size bytes
     let metadata_start = metadata_size_start - metadata_size as usize;
-    let mut metadata_bytes = &buf[metadata_start..metadata_start + metadata_size as usize];
+    let metadata_bytes = &buf[metadata_start..metadata_start + metadata_size as usize];
+    let metadata_bytes = Vec::from(&metadata_bytes[..]);
+    let mut shared_metadata = SharedMetadata::new(&metadata_bytes);
 
-    let version = i32::compact_decode(&mut metadata_bytes).unwrap();
-    println!("{:?}", version);
-    let message = Struct::compact_decode(&mut metadata_bytes).unwrap();
-    dbg!(message);
+    let mut t = protocol::TCompactInputProtocol::new(&mut shared_metadata);
 
-    let schema_one = &Struct::compact_decode(&mut metadata_bytes).unwrap();
+    // start parsing metadata
+    t.read_struct_begin().unwrap();
+
+    // version field - id: 1
+    let field_ident = t.read_field_begin().unwrap();
+    let field_id = protocol::field_id(&field_ident).unwrap();
+    assert_eq!(field_id, 1);
+    assert_eq!(field_ident.field_type, TType::I32);
+    let version = t.read_i32().unwrap();
+    dbg!(version);
+
+    // schema list field - id: 2
+    let field_ident = t.read_field_begin().unwrap();
+    let field_id = protocol::field_id(&field_ident).unwrap();
+    assert_eq!(field_id, 2);
+    assert_eq!(field_ident.field_type, TType::List);
+
+    let schema_list_ident = t.read_list_begin().unwrap();
+    dbg!(schema_list_ident);
+
+    let schema_schema = &Struct::compact_decode(&mut shared_metadata).unwrap();
+    dbg!(schema_schema);
+    if let Data::Binary(v) = schema_schema
+        .fields()
+        .iter()
+        .find(|f| f.id() == 4)
+        .unwrap()
+        .data()
+    {
+        assert_eq!("schema", String::from_utf8_lossy(&v));
+    } else {
+        panic!("unexpected data kind");
+    }
+
+    let schema_one = &Struct::compact_decode(&mut shared_metadata).unwrap();
     dbg!(schema_one);
-    if let Data::Binary(v) = schema_one.fields()[2].data() {
+    if let Data::Binary(v) = schema_one
+        .fields()
+        .iter()
+        .find(|f| f.id() == 4)
+        .unwrap()
+        .data()
+    {
         assert_eq!("one", String::from_utf8_lossy(&v));
     } else {
         panic!("unexpected data kind");
     }
 
-    let schema_two = &Struct::compact_decode(&mut metadata_bytes).unwrap();
+    let schema_two = &Struct::compact_decode(&mut shared_metadata).unwrap();
     dbg!(schema_two);
-    if let Data::Binary(v) = schema_two.fields()[2].data() {
+    if let Data::Binary(v) = schema_two
+        .fields()
+        .iter()
+        .find(|f| f.id() == 4)
+        .unwrap()
+        .data()
+    {
         assert_eq!("two", String::from_utf8_lossy(&v));
     } else {
         panic!("unexpected data kind");
     }
 
-    let schema_three = &Struct::compact_decode(&mut metadata_bytes).unwrap();
+    let schema_three = &Struct::compact_decode(&mut shared_metadata).unwrap();
     dbg!(schema_three);
-    if let Data::Binary(v) = schema_three.fields()[2].data() {
+    if let Data::Binary(v) = schema_three
+        .fields()
+        .iter()
+        .find(|f| f.id() == 4)
+        .unwrap()
+        .data()
+    {
         assert_eq!("three", String::from_utf8_lossy(&v));
     } else {
         panic!("unexpected data kind");
     }
 
-    let schema_index = &Struct::compact_decode(&mut metadata_bytes).unwrap();
-    dbg!(schema_index);
-    if let Data::Binary(v) = schema_index.fields()[2].data() {
+    let schema_idx = &Struct::compact_decode(&mut shared_metadata).unwrap();
+    dbg!(schema_idx);
+    if let Data::Binary(v) = schema_idx
+        .fields()
+        .iter()
+        .find(|f| f.id() == 4)
+        .unwrap()
+        .data()
+    {
         assert_eq!("__index_level_0__", String::from_utf8_lossy(&v));
     } else {
         panic!("unexpected data kind");
     }
 
-    let num_rows = i64::compact_decode(&mut metadata_bytes).unwrap();
-    dbg!(num_rows);
-    // num_rows = 11?
-    // assert_eq!(3, num_rows);
+    let mut t = protocol::TCompactInputProtocol::new(&mut shared_metadata);
+    t.read_list_end().unwrap();
+
+    // num_rows field
+    let field_ident = t.read_field_begin().unwrap();
+    let field_id = protocol::field_id(&field_ident).unwrap();
+    assert_eq!(field_id, 1);
+    assert_eq!(field_ident.field_type, TType::I64);
+
+    let num_rows = i64::compact_decode(&mut shared_metadata).unwrap();
+    assert_eq!(num_rows, 3);
 
     Ok(())
 }
