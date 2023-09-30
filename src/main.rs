@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::fs::File;
 use std::io::prelude::*;
+use std::ops::Deref;
 
 use thrift::protocol::{self, TInputProtocol, TType};
 use thrift_codec::data::{Data, Struct};
@@ -14,13 +15,13 @@ const METADATA_SIZE_LENGTH: usize = 4;
 fn main() -> std::io::Result<()> {
     let mut file = File::open("example.parquet")?;
     let mut buf = Vec::new();
-    let size = file.read_to_end(&mut buf)?;
-    println!("file size: {}", size);
+    let file_size = file.read_to_end(&mut buf)?;
+    dbg!(file_size);
 
     let buf = buf;
     assert_eq!(MAGIC_BYTES, &buf[0..MAGIC_BYTES.len()]);
     // start at 4 bytes from the end of the file
-    let magic_start = size - MAGIC_BYTES.len();
+    let magic_start = file_size - MAGIC_BYTES.len();
     assert_eq!(
         MAGIC_BYTES,
         &buf[magic_start..magic_start + MAGIC_BYTES.len()]
@@ -33,7 +34,11 @@ fn main() -> std::io::Result<()> {
             .try_into()
             .unwrap(),
     );
-    println!("metadata size: {}", metadata_size);
+    dbg!(metadata_size);
+
+    let data_size =
+        file_size - metadata_size as usize - MAGIC_BYTES.len() * 2 - METADATA_SIZE_LENGTH;
+    dbg!(data_size);
 
     // go back by metadata_size bytes
     let metadata_start = metadata_size_start - metadata_size as usize;
@@ -41,6 +46,8 @@ fn main() -> std::io::Result<()> {
     let metadata_bytes = Vec::from(metadata_bytes);
     let mut shared_metadata = SharedByteSliceReader::new(&metadata_bytes);
 
+    let starting_inner_reader_len = shared_metadata.copy_inner().len();
+    dbg!(starting_inner_reader_len);
     let mut t = protocol::TCompactInputProtocol::new(&mut shared_metadata);
 
     // start parsing metadata
@@ -91,13 +98,23 @@ fn main() -> std::io::Result<()> {
     let mut t = protocol::TCompactInputProtocol::new(&mut shared_metadata);
     t.read_list_end().unwrap();
 
+    let after_schema_inner_reader_len = shared_metadata.copy_inner().len();
+    dbg!(after_schema_inner_reader_len);
+
+    // is the reader advancing the shared slice?
+    assert!(after_schema_inner_reader_len < starting_inner_reader_len);
+    let metadata_read_len = starting_inner_reader_len - after_schema_inner_reader_len;
+    dbg!(metadata_read_len);
+
     // num_rows field
+    let mut t = protocol::TCompactInputProtocol::new(&mut shared_metadata);
     let field_ident = t.read_field_begin().unwrap();
     let field_id = protocol::field_id(&field_ident).unwrap();
-    assert_eq!(field_id, 1);
+    assert_eq!(field_id, 1); // field id should be 4 here
     assert_eq!(field_ident.field_type, TType::I64);
+    let num_rows = t.read_i16().unwrap();
 
-    let num_rows = i64::compact_decode(&mut shared_metadata).unwrap();
+    // let num_rows = i64::compact_decode(&mut shared_metadata).unwrap();
     assert_eq!(num_rows, 3);
 
     Ok(())
@@ -137,6 +154,10 @@ impl<'a> SharedByteSliceReader<'a> {
         Self {
             inner: RefCell::new(inner),
         }
+    }
+
+    fn copy_inner(&self) -> &[u8] {
+        self.inner.borrow().deref()
     }
 }
 
