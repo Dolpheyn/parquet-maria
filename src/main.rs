@@ -35,30 +35,11 @@ fn main() -> std::io::Result<()> {
     );
     println!("metadata size: {}", metadata_size);
 
-    struct SharedMetadata<'a> {
-        inner: RefCell<&'a [u8]>,
-    }
-
-    impl<'a> SharedMetadata<'a> {
-        fn new(inner: &'a [u8]) -> Self {
-            Self {
-                inner: RefCell::new(inner),
-            }
-        }
-    }
-
-    impl Read for SharedMetadata<'_> {
-        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-            let mut a = self.inner.borrow_mut();
-            (a).read(buf)
-        }
-    }
-
     // go back by metadata_size bytes
     let metadata_start = metadata_size_start - metadata_size as usize;
     let metadata_bytes = &buf[metadata_start..metadata_start + metadata_size as usize];
     let metadata_bytes = Vec::from(&metadata_bytes[..]);
-    let mut shared_metadata = SharedMetadata::new(&metadata_bytes);
+    let mut shared_metadata = SharedByteSliceReader::new(&metadata_bytes);
 
     let mut t = protocol::TCompactInputProtocol::new(&mut shared_metadata);
 
@@ -144,5 +125,24 @@ impl TryFrom<&Struct> for SchemaElement {
         } else {
             panic!("unexpected data kind");
         }
+    }
+}
+
+struct SharedByteSliceReader<'a> {
+    inner: RefCell<&'a [u8]>,
+}
+
+impl<'a> SharedByteSliceReader<'a> {
+    fn new(inner: &'a [u8]) -> Self {
+        Self {
+            inner: RefCell::new(inner),
+        }
+    }
+}
+
+impl Read for SharedByteSliceReader<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let mut a = self.inner.borrow_mut();
+        (a).read(buf)
     }
 }
